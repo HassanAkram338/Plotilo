@@ -9,7 +9,7 @@ const orgRoutes = require('../modules/org/org.routes');
 const membershipRoutes = require('../modules/membership/membership.routes');
 const inviteRoutes = require('../modules/invite/invite.routes');
 const projectRotes = require("../modules/project/project.routes")
-
+const myMembershipsRoutes = require("../modules/me/me.routes")
 
 router.get('/health', health);
 router.use('/auth', authRoutes);
@@ -17,6 +17,7 @@ router.use('/organizations', orgRoutes);
 router.use('/organizations', membershipRoutes);
 router.use("/",inviteRoutes)
 router.use("/organizations",projectRotes)
+router.use("/me",myMembershipsRoutes)
 
 
 router.get('/me', requireAuth, (req, res) => {

@@ -1,49 +1,56 @@
 const prisma = require('../../prisma/client');
+const { assertOrgScope } = require('../../utils/orgScope');
+const { NotFoundError } = require('../../utils/errors');
 
 exports.createOrg = async ({ name, slug, ownerId }) => {
-  const org = await prisma.organization.create({
-    data: { name, slug, ownerId },
+  return await prisma.$transaction(async (tx) => {
+    const org = await tx.organization.create({
+      data: { name, slug, ownerId },
+    });
+    await tx.membership.create({
+      data: { userId: ownerId, organizationId: org.id, role: 'OWNER' },
+    });
+    return org;
   });
-  await prisma.membership.create({
-    data: { userId: ownerId, organizationId: org.id, role: 'OWNER' },
-  });
-  return org;
 };
 
-exports.updateOrganization = async (orgId, data, userId) => {
-  
-  const org = await prisma.organization.update({
+exports.updateOrganization = async (orgId, data) => {
+  const org = await prisma.organization.findUnique({
+    where: { id: orgId },
+  });
+
+  if (!org) throw NotFoundError('Organization Not Found');
+
+  return await prisma.organization.update({
     where: { id: orgId },
     data,
   });
-
-  if (!org) throw new Error('Organization not found');
-  return org;
 };
 
-exports.deleteOrganization = async (orgId, userId) => {
-  
-  
- await prisma.membership.deleteMany({where : {organizationId : orgId}})
-
-  const org = await prisma.organization.delete({
+exports.deleteOrganization = async (orgId) => {
+  const org = await prisma.organization.findUnique({
     where: { id: orgId },
   });
-  if (!org) throw new Error('Organization not found');
-  return org;
+
+  if (!org) throw NotFoundError('Organization Not Found');
+
+  await prisma.membership.deleteMany({ where: assertOrgScope({}, orgId) });
+
+  return await prisma.organization.delete({
+    where: { id: orgId },
+  });
 };
 
-exports.getMyOrgs = async (userId) =>
-  await prisma.membership.findMany({
+exports.getMyOrgs = async (userId) => {
+  return await prisma.membership.findMany({
     where: { userId },
     include: { Organization: true },
     orderBy: { joinedAt: 'desc' },
   });
+};
 
-exports.getOrgById = async (id) =>
-  await prisma.organization.findUnique({ where: { id } });
-
-exports.isMember = async (userId, orgId) =>
-  await prisma.membership.findFirst({
-    where: { userId, organizationId: orgId },
-  });
+exports.getOrgById = async (id) => {
+  const org = await prisma.organization.findUnique({ where: { id } });
+  if (!org) throw NotFoundError('Organization Not Found');
+  return org;
+};

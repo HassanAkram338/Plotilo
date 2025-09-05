@@ -11,13 +11,13 @@ function checkPlanLimit(resource /* 'MEMBERS' | 'PROJECTS' */) {
   return async (req, res, next) => {
     try {
       const orgId = req.org?.id || req.params.orgId;
-      if (!orgId) throw new ForbiddenError('Organization context missing');
+      if (!orgId) throw ForbiddenError('Organization context missing');
 
       const org = await prisma.organization.findUnique({
         where: { id: orgId },
         select: { subscriptionPlan: true },
       });
-      if (!org) throw new ForbiddenError('Organization not found');
+      if (!org) throw ForbiddenError('Organization not found');
 
       const plan = org.subscriptionPlan || 'FREE';
       const limit = PLAN_LIMITS[plan]?.[resource];
@@ -33,7 +33,7 @@ function checkPlanLimit(resource /* 'MEMBERS' | 'PROJECTS' */) {
       }
 
       if (used >= limit) {
-        throw new ForbiddenError(
+        throw ForbiddenError(
           `Plan limit exceeded: ${resource.toLowerCase()} for ${plan} plan (max ${limit}).`
         );
       }

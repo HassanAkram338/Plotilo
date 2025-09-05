@@ -1,37 +1,47 @@
 const prisma = require('../../prisma/client');
+const { assertOrgScope } = require('../../utils/orgScope');
+const { NotFoundError, ForbiddenError } = require('../../utils/errors');
 
 exports.listMembers = (orgId) =>
   prisma.membership.findMany({
-    where: { organizationId: orgId },
+    where: assertOrgScope({}, orgId),
     // include: { Organization: true }, // optional: fetch user details
   });
 
-  
 exports.getMember = async ({ orgId, memberId }) => {
-  const member = await prisma.membership.findUnique({ where: { id: memberId } });
-  if (!member || member.organizationId !== orgId) throw new Error('Not found');
+  const member = await prisma.membership.findFirst({
+    where: assertOrgScope({ id: memberId }, orgId),
+  });
+  if (!member) throw NotFoundError('Membership not found in this organization');
   return member;
 };
 
 exports.changeRole = async ({ orgId, memberId, role }) => {
-  const member = await prisma.membership.findUnique({ where: { id: memberId } });
-  if (!member || member.organizationId !== orgId) throw new Error('Not found');
+  const member = await prisma.membership.findFirst({
+    where: assertOrgScope({ id: memberId }, orgId),
+  });
+
+  if (!member) throw NotFoundError('Membership not found in this organization');
 
   // prevent downgrading last OWNER
   if (member.role === 'OWNER' && role !== 'OWNER') {
     const owners = await prisma.membership.count({
-      where: { organizationId: orgId, role: 'OWNER' },
+      where: assertOrgScope({ role: 'OWNER' }, orgId),
     });
-    if (owners <= 1) throw new Error('Cannot downgrade last OWNER');
+    if (owners <= 1) throw ForbiddenError('Cannot downgrade last OWNER');
   }
 
   return prisma.membership.update({ where: { id: memberId }, data: { role } });
 };
 
 exports.removeMember = async ({ orgId, memberId }) => {
-  const member = await prisma.membership.findUnique({ where: { id: memberId } });
-  if (!member || member.organizationId !== orgId) throw new Error('Not found');
-  if (member.role === 'OWNER') throw new Error('Cannot remove OWNER');
+  const member = await prisma.membership.findFirst({
+    where: assertOrgScope({ id: memberId }, orgId),
+  });
+  if (!member) throw NotFoundError('Membership not found in this organization');
+
+  if (member.role === 'OWNER')
+    throw ForbiddenError('Cannot remove OWNER member');
   await prisma.membership.delete({ where: { id: memberId } });
   return true;
 };
@@ -39,24 +49,34 @@ exports.removeMember = async ({ orgId, memberId }) => {
 exports.transferOwnership = async ({ orgId, fromUserId, toMemberId }) => {
   // ensure current user is OWNER
   const currentOwner = await prisma.membership.findFirst({
-    where: { organizationId: orgId, userId: fromUserId, role: 'OWNER' },
+    where: assertOrgScope({ userId: fromUserId, role: 'OWNER' }, orgId),
   });
-  if (!currentOwner) throw new Error('Only OWNER can transfer ownership');
+  if (!currentOwner) throw ForbiddenError('Only OWNER can transfer ownership');
 
-  const newOwner = await prisma.membership.findUnique({ where: { id: toMemberId } });
-  if (!newOwner || newOwner.organizationId !== orgId) throw new Error('Invalid target member');
+  const newOwner = await prisma.membership.findFirst({
+    where: assertOrgScope({ id: toMemberId }, orgId),
+  });
+  if (!newOwner) throw NotFoundError('Invalid target member');
 
   // demote current owner to ADMIN, promote new owner
-  await prisma.membership.update({ where: { id: currentOwner.id }, data: { role: 'ADMIN' } });
-  return prisma.membership.update({ where: { id: newOwner.id }, data: { role: 'OWNER' } });
+  await prisma.membership.update({
+    where: { id: currentOwner.id },
+    data: { role: 'ADMIN' },
+  });
+  return prisma.membership.update({
+    where: { id: newOwner.id },
+    data: { role: 'OWNER' },
+  });
 };
 
 exports.leaveOrganization = async ({ orgId, userId }) => {
   const membership = await prisma.membership.findFirst({
-    where: { organizationId: orgId, userId },
+    where: assertOrgScope({ userId }, orgId),
   });
-  if (!membership) throw new Error('Not a member');
-  if (membership.role === 'OWNER') throw new Error('OWNER cannot leave organization');
+  if (!membership)
+    throw NotFoundError('Membership not found in this organization');
+  if (membership.role === 'OWNER')
+    throw ForbiddenError('OWNER cannot leave organization');
   await prisma.membership.delete({ where: { id: membership.id } });
   return true;
 };
